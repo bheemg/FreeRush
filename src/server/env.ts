@@ -13,6 +13,9 @@ export const env = {
   scraperUrl: process.env.SCRAPER_URL ?? "http://localhost:3001",
   pagespeedKey: process.env.PAGESPEED_API_KEY ?? "",
 
+  // Public base URL of the app (used to build OAuth redirect URIs).
+  appUrl: process.env.AUTH_URL ?? "http://localhost:3000",
+
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID ?? "",
     clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
