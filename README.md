@@ -31,14 +31,16 @@ through a Postgres-backed cache to conserve free-tier quotas.
 Multi-tenancy: every tenant-owned row carries `workspaceId`; access is scoped
 through `requireContext()` / `loadProject()`.
 
-## Quick start (Docker — full stack)
+## Quick start (Docker — full stack, recommended)
 
 ```bash
-cp .env.example .env          # set AUTH_SECRET (openssl rand -base64 32); GEMINI_API_KEY optional
-docker compose up --build
-# app on http://localhost:3000  ·  run migrations once:
-docker compose exec app npx prisma migrate deploy
+cp .env.example .env          # works as-is; add a free GEMINI_API_KEY for real analysis
+docker compose up --build     # builds + starts everything; tables are created automatically
 ```
+
+Open http://localhost:3000, click **Create an account**, add a site, and the
+background worker analyzes it. The DB schema is created automatically by the
+one-shot `migrate` service before the app starts — no manual database steps.
 
 ## Quick start (local dev)
 

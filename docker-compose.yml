@@ -1,6 +1,8 @@
 # FreeRush self-hosted stack. `docker compose up` brings up everything needed
 # to run locally on a $0 budget: app + Postgres + background worker + a
 # Playwright scraper (Firecrawl replacement) + SearXNG (free SERP source).
+# A one-shot `migrate` service creates the database tables before app/worker boot,
+# so a fresh `docker compose up` is fully turnkey — no manual DB steps.
 services:
   db:
     image: postgres:16-alpine
@@ -19,6 +21,19 @@ services:
       timeout: 5s
       retries: 10
 
+  # Creates/updates the schema once, then exits. app & worker wait for it.
+  migrate:
+    build:
+      context: .
+      target: worker
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://freerush:freerush@db:5432/freerush?schema=public"
+    command: ["npx", "prisma", "db", "push", "--skip-generate", "--accept-data-loss"]
+    depends_on:
+      db:
+        condition: service_healthy
+
   app:
     build:
       context: .
@@ -30,11 +45,14 @@ services:
       SEARXNG_URL: "http://searxng:8080"
       SCRAPER_URL: "http://scraper:3001"
       AUTH_URL: "http://localhost:3000"
+      AUTH_TRUST_HOST: "true"
     ports:
       - "3000:3000"
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   worker:
     build:
@@ -49,6 +67,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   scraper:
     build:
