@@ -1,0 +1,71 @@
+# FreeRush self-hosted stack. `docker compose up` brings up everything needed
+# to run locally on a $0 budget: app + Postgres + background worker + a
+# Playwright scraper (Firecrawl replacement) + SearXNG (free SERP source).
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: freerush
+      POSTGRES_PASSWORD: freerush
+      POSTGRES_DB: freerush
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freerush"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      target: runner
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://freerush:freerush@db:5432/freerush?schema=public"
+      SEARXNG_URL: "http://searxng:8080"
+      SCRAPER_URL: "http://scraper:3001"
+      AUTH_URL: "http://localhost:3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://freerush:freerush@db:5432/freerush?schema=public"
+      SEARXNG_URL: "http://searxng:8080"
+      SCRAPER_URL: "http://scraper:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  scraper:
+    build:
+      context: ./services/scraper
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: "http://localhost:8080/"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./services/searxng:/etc/searxng:rw
+
+volumes:
+  db_data:

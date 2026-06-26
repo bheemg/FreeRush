@@ -1,0 +1,200 @@
+// FreeRush data model.
+// Multi-tenant by design: every tenant-owned row carries `workspaceId`, and all
+// data access goes through a tenant-scoped layer (see src/server/db). This keeps
+// the door open to SaaS (many workspaces) while personal use is just one workspace.
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" for local dev; musl target for the Alpine Docker runtime.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth.js models (User/Account/Session/VerificationToken) + password for the
+// credentials provider. Account/Session are kept for future OAuth (Google, so
+// we can pull Search Console / Analytics first-party data).
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String       @id @default(cuid())
+  name          String?
+  email         String       @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  memberships   Membership[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy
+// ---------------------------------------------------------------------------
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Workspace {
+  id          String        @id @default(cuid())
+  name        String
+  slug        String        @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  memberships Membership[]
+  projects    Project[]
+  integrations Integration[]
+}
+
+model Membership {
+  id          String    @id @default(cuid())
+  role        Role      @default(OWNER)
+  userId      String
+  workspaceId String
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Core domain
+// ---------------------------------------------------------------------------
+
+model Project {
+  id           String         @id @default(cuid())
+  workspaceId  String
+  name         String
+  url          String
+  domain       String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  reports      Report[]
+  scoreHistory ScoreHistory[]
+
+  @@index([workspaceId])
+}
+
+enum ReportKind {
+  ANALYSIS
+  GROWTH
+}
+
+enum ReportStatus {
+  QUEUED
+  RUNNING
+  COMPLETE
+  FAILED
+}
+
+// A generated report (analysis or growth). `data` holds the structured JSON the
+// dashboard pages render; `status`/`progress` drive the background-job UI.
+model Report {
+  id          String       @id @default(cuid())
+  workspaceId String
+  projectId   String
+  kind        ReportKind   @default(ANALYSIS)
+  status      ReportStatus @default(QUEUED)
+  progress    Int          @default(0)
+  grounded    Boolean      @default(false)
+  score       Int?
+  data        Json?
+  error       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([projectId, kind])
+}
+
+// Trail of overall scores for the sparkline.
+model ScoreHistory {
+  id          String   @id @default(cuid())
+  workspaceId String
+  projectId   String
+  score       Int
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+}
+
+// OAuth-connected data sources (Google Search Console / Analytics) per workspace.
+model Integration {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  provider     String // "google_search_console" | "google_analytics" | "google_ads"
+  accessToken  String?   @db.Text
+  refreshToken String?   @db.Text
+  expiresAt    DateTime?
+  meta         Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider])
+}
+
+// ---------------------------------------------------------------------------
+// Provider cache — wraps every external data call (SERP, scrape, keyword, etc.)
+// so free-tier limits are conserved. Keyed by provider + a hash of the params.
+// ---------------------------------------------------------------------------
+
+model ProviderCache {
+  id        String   @id @default(cuid())
+  provider  String
+  key       String
+  value     Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([provider, key])
+  @@index([expiresAt])
+}
