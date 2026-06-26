@@ -26,7 +26,9 @@ services:
     build:
       context: .
       target: worker
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: "postgresql://freerush:freerush@db:5432/freerush?schema=public"
     command: ["npx", "prisma", "db", "push", "--skip-generate", "--accept-data-loss"]
@@ -39,13 +41,17 @@ services:
       context: .
       target: runner
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: "postgresql://freerush:freerush@db:5432/freerush?schema=public"
       SEARXNG_URL: "http://searxng:8080"
       SCRAPER_URL: "http://scraper:3001"
       AUTH_URL: "http://localhost:3000"
       AUTH_TRUST_HOST: "true"
+      # Default so the app runs with no .env file. Change before exposing publicly.
+      AUTH_SECRET: "${AUTH_SECRET:-local-dev-secret-change-before-going-public-0001}"
     ports:
       - "3000:3000"
     depends_on:
@@ -59,7 +65,9 @@ services:
       context: .
       target: worker
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: "postgresql://freerush:freerush@db:5432/freerush?schema=public"
       SEARXNG_URL: "http://searxng:8080"
